@@ -33,7 +33,7 @@
 #include <video/ktd253x_bl.h>
 
 /* to be removed when driver works */
-/* #define dev_dbg dev_info */
+#define dev_dbg dev_info
 
 #if defined(CONFIG_MACH_SEC_SKOMER)
 #define DEFAULT_RATIO			13

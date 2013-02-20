@@ -30,7 +30,7 @@
 
 #include "tma140_download_skomer.h"
 
-#include "./TMA140_FW/Skomer_CY_v01_v13.h"
+#include "./TMA140_FW/Skomer_CY_v01_v15.h"
 
 #define TSP_SDA 229
 #define TSP_SCL 230

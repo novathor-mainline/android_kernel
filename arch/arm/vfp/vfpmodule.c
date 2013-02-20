@@ -11,9 +11,7 @@
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/cpu.h>
-#if defined(CONFIG_MACH_SEC_SKOMER)
 #include <linux/hardirq.h>
-#endif
 #include <linux/kernel.h>
 #include <linux/notifier.h>
 #include <linux/signal.h>
@@ -398,14 +396,10 @@ void VFP_bounce(u32 trigger, u32 fpexc, struct pt_regs *regs)
 
 static void vfp_enable(void *unused)
 {
-#if !defined(CONFIG_MACH_SEC_SKOMER)
-	u32 access = get_copro_access();
-#else
 	u32 access;
 
 	BUG_ON(preemptible());
 	access = get_copro_access();
-#endif
 
 	/*
 	 * Enable full access to VFP (cp10 and cp11)
@@ -548,13 +542,8 @@ static int __init vfp_init(void)
 	unsigned int vfpsid;
 	unsigned int cpu_arch = cpu_architecture();
 
-#if !defined(CONFIG_MACH_SEC_SKOMER)
-	if (cpu_arch >= CPU_ARCH_ARMv6)
-		vfp_enable(NULL);
-#else
 	if (cpu_arch >= CPU_ARCH_ARMv6)
 		on_each_cpu(vfp_enable, NULL, 1);
-#endif
 
 	/*
 	 * First check that there is a VFP that we can use.
@@ -574,10 +563,6 @@ static int __init vfp_init(void)
 		printk("no double precision support\n");
 	} else {
 		hotcpu_notifier(vfp_hotplug, 0);
-
-#if !defined(CONFIG_MACH_SEC_SKOMER)
-		smp_call_function(vfp_enable, NULL, 1);
-#endif
 
 		VFP_arch = (vfpsid & FPSID_ARCH_MASK) >> FPSID_ARCH_BIT;  /* Extract the architecture version */
 		printk("implementor %02x architecture %d part %02x variant %x rev %x\n",

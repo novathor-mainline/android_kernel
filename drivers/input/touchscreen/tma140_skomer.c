@@ -223,7 +223,7 @@ unsigned char touch_fw_ver = 0;
 
 #define TSP_VENDER_ID	0xF0
 
-#define TSP_KERNEL_FW_ID		0x13    //Firmware version in Kernel binary
+#define TSP_KERNEL_FW_ID		0x15    //Firmware version in Kernel binary
 
 int tsp_irq_num = 0;
 int tsp_workqueue_num = 0;

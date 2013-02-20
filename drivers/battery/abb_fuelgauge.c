@@ -876,7 +876,7 @@ static int ab8500_fg_volt_to_capacity(struct ab8500_fuelgauge_info *di,
 				psy_do_property("sec-charger", get,
 						POWER_SUPPLY_PROP_TECHNOLOGY,
 						val);
-				panic("different between capacity & voltage");
+//				panic("different between capacity & voltage");
 			}
 			di->fullcap_error_cnt++;
 		} else
