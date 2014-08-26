@@ -4,4 +4,5 @@
 
 # Object files in subdirectories
 
+#obj-$(CONFIG_SAMSUNG_PARAM)     += param/
 obj-y				+= startup_reason/
