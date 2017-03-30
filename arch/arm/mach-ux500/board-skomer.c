@@ -1978,7 +1978,7 @@ struct sec_jack_platform_data sec_jack_pdata = {
 	.buttons_f = "ACC_DETECT_21DB_F",
 	.regulator_mic_source = "v-amic1",
 #ifdef CONFIG_SAMSUNG_JACK_SW_WATERPROOF
-	.ear_reselector_zone    = 1653,
+	.ear_reselector_zone    = 1790,
 #endif
 };
 #endif

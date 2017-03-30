@@ -359,6 +359,7 @@ struct ab8500_charger_info {
 
 	bool autopower;
 	bool vddadc_en;
+	bool aicl_disabled;
 
 	int vbat;
 	int old_vbat;

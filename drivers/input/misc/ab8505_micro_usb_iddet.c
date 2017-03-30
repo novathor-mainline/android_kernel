@@ -2070,6 +2070,7 @@ static void accessory_plug_detect(struct kthread_work *work)
 	unsigned char count = 3;
 	int timeoutval;
 	long timeout = msecs_to_jiffies(300);  //700ms
+	long timeout1 = msecs_to_jiffies(100);  //700ms
 	unsigned char vbusdet;
 
 	/* give priority to VBUS interupt than IDPLUG*/
@@ -2131,15 +2132,39 @@ static void accessory_plug_detect(struct kthread_work *work)
 	}
 	/* Skip detection if UsbLink1Status[4:0] is set */
 	if (usblink1status != UART_BOOTON_VAL &&
-			usblink1status != UART_BOOTOFF_VAL) {
+			usblink1status != UART_BOOTOFF_VAL &&
+			usblink1status != UART_BOOT_VAL) {
 		if (usblink1status & LINK1_STATUS_MASK) {
 			dev_info(dev, "%s Returning from IDDet handler %d usblink1status = %x\n",
 					__func__, __LINE__,usblink1status);
-
-			accessory->cable_detected = USBSWITCH_USBHOST;
-			accessory->cable_last_detected = accessory->cable_detected;
 			return;
 		}
+	}
+
+	printk("\n cable_last_detected = %d\n", accessory->cable_last_detected);
+	if (usblink1status == UART_BOOT_VAL && accessory->cable_last_detected != USBSWITCH_USBHOST) {
+		printk("\n send notification to disable USB PHY\n");
+		accessory->wait_event_lsts = true;
+		/* Notify to usb driver to reset PHY register */
+		blocking_notifier_call_chain(
+				&micro_usb_switch_notifier,
+				USB_PHY_DISABLE, NULL);
+
+		/* wait for linkstatus interrupt*/
+		timeoutval = wait_event_interruptible_timeout(accessory->wait,
+					(!accessory->wait_event_lsts), timeout1);
+		if (!timeoutval)
+			dev_info(dev, "%s !Link status Time out happend %d\n",
+					__func__, __LINE__);
+
+		accessory->wait_event_lsts = false;
+		ret = abx500_get(dev, AB8505_USB, USBLINK1STATUS, &usblink1status);
+		if (ret < 0) {
+			dev_err(dev, "%s read failed %d\n", __func__, __LINE__);
+			return;
+		}
+		printk("\n usblink1status = %x\n",usblink1status);
+
 	}
 
 	get_ctrl_from_fsmcharger(accessory);
@@ -2161,6 +2186,7 @@ static void accessory_plug_detect(struct kthread_work *work)
 	accessory->cable_detected = USBSWITCH_NONE;
 
 	if (!(id_voltage & IDDETPLUGDETCOMP)) {
+	#if 0
 		accessory->handle_plug_irq = true;
 		/* Set iddet IP HW controllable */
 		ret = abx500_mask_and_set(dev, AB8505_CHARGER,
@@ -2173,6 +2199,10 @@ static void accessory_plug_detect(struct kthread_work *work)
 		dev_err(dev, "\n %s invalid id_voltage == %x\n",
 						__func__, id_voltage);
 		return;
+	#endif
+	
+			dev_err(dev, "\n %s invalid id_voltage == %x\n",
+						__func__, id_voltage);
 	}
 
 	/* 1microAmp current source pull up disable */

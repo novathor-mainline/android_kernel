@@ -2921,6 +2921,13 @@ void prcmu_ac_wake_req(void)
 	if (val & PRCM_HOSTACCESS_REQ_HOSTACCESS_REQ)
 		goto unlock_and_return;
 
+	if (mb0_transfer.ac_wake_work.done) {
+		pr_crit("%s: ac_wake_work was non-zero (%d) on entry!\n",  __func__,
+			mb0_transfer.ac_wake_work.done);
+
+		INIT_COMPLETION(mb0_transfer.ac_wake_work);
+	}
+
 	atomic_set(&ac_wake_req_state, 1);
 
 retry:
@@ -2966,19 +2973,29 @@ retry:
 			__func__, status);
 		udelay(1200);
 
-		val &= ~PRCM_HOSTACCESS_REQ_WAKE_REQ;
+		status = readl(PRCM_MOD_AWAKE_STATUS) & BITS(0, 1);
+		if (status != (PRCM_MOD_AWAKE_STATUS_PRCM_MOD_AAPD_AWAKE |
+				PRCM_MOD_AWAKE_STATUS_PRCM_MOD_COREPD_AWAKE)) {
+			pr_err("prcmu: %s waited, but modem still not awake (0x%X).\n",
+			        __func__, status);
 
-		writel(val, (PRCM_HOSTACCESS_REQ));
-		if (wait_for_completion_timeout(&mb0_transfer.ac_wake_work,
-				msecs_to_jiffies(5000))) {
-			goto retry;
+			/* Do an ac sleep req first and then retry */
+			val &= ~PRCM_HOSTACCESS_REQ_HOSTACCESS_REQ;
 
+			writel(val, (PRCM_HOSTACCESS_REQ));
+			if (wait_for_completion_timeout(&mb0_transfer.ac_wake_work,
+					msecs_to_jiffies(5000))) {
+				goto retry;
+
+			} else {
+				db8500_prcmu_debug_dump(true);
+				panic("prcmu: %s timed out again (5 s) waiting for a reply.\n",
+					__func__);
+			}
 		} else {
-			db8500_prcmu_debug_dump(true);
-			panic("prcmu: %s timed out again (5 s) waiting for a reply.\n",
-				__func__);
+			pr_err("prcmu: %s modem awake after waiting (0x%X)\n",
+			       __func__, status);
 		}
-
 	}
 
 unlock_and_return:
@@ -2998,6 +3015,13 @@ void prcmu_ac_sleep_req()
 	trace_u8500_ac_sleep_req(val);
 	if (!(val & PRCM_HOSTACCESS_REQ_HOSTACCESS_REQ))
 		goto unlock_and_return;
+
+	if (mb0_transfer.ac_wake_work.done) {
+		pr_crit("%s: ac_wake_work was non-zero (%d) on entry!\n",  __func__,
+			mb0_transfer.ac_wake_work.done);
+
+		INIT_COMPLETION(mb0_transfer.ac_wake_work);
+	}
 
 	log_this(60, NULL, 0, NULL, 0);
 	val &= ~(PRCM_HOSTACCESS_REQ_HOSTACCESS_REQ |

@@ -438,7 +438,8 @@ static int ab8500_chg_set_current(struct ab8500_charger_info *di,
 	if (prev_curr_index > curr_index) {
 		for (i = prev_curr_index - 1; i >= curr_index; i--) {
 
-			usleep_range(STEP_UDELAY, STEP_UDELAY * 2);
+			/*usleep_range(STEP_UDELAY, STEP_UDELAY * 2);*/
+			msleep(100);
 			ret = abx500_set_register_interruptible(di->dev,
 				AB8500_CHARGER, reg, (u8) i << shift_value);
 			if (ret) {
@@ -450,7 +451,8 @@ static int ab8500_chg_set_current(struct ab8500_charger_info *di,
 	} else {
 		for (i = prev_curr_index + 1; i <= curr_index; i++) {
 
-			usleep_range(STEP_UDELAY, STEP_UDELAY * 2);
+			/*usleep_range(STEP_UDELAY, STEP_UDELAY * 2);*/
+			msleep(100);
 			ret = abx500_set_register_interruptible(di->dev,
 				AB8500_CHARGER, reg, (u8) i << shift_value);
 			if (ret) {
@@ -715,7 +717,7 @@ static int ab8500_chg_en(struct ab8500_charger_info *di, int enable)
 
 static void ab8500_chg_check_input_curr(struct ab8500_charger_info *di)
 {
-	int ret;
+	int ret, vbat;
 	u8 value;
 	ret = abx500_get_register_interruptible(di->dev,
 					        AB8500_CHARGER,
@@ -728,8 +730,46 @@ static void ab8500_chg_check_input_curr(struct ab8500_charger_info *di)
 	if (value < 0x30) {
 		ab8500_chg_en(di, false);
 		dev_info(di->dev, "%s, set input current again\n", __func__);
-		ab8500_chg_en(di, true);
+	} else {
+		return;
 	}
+
+	/* Read it again to check if re-enabling the charger fails */
+	ret = abx500_get_register_interruptible(di->dev,
+						AB8500_CHARGER,
+						AB8500_CH_USBCH_STAT2_REG,
+						&value);
+	if (ret < 0) {
+		dev_err(di->dev, "%s ab8500 read failed\n", __func__);
+		return;
+	}
+
+	if ((value & 0xF0) == 0) {
+		dev_info(di->dev,
+			"%s, AICL is still 0, read VBAT\n", __func__);
+		vbat = ab8500_gpadc_convert(di->gpadc, MAIN_BAT_V);
+		if (vbat < 0)
+			dev_err(di->dev, "%s: gpadc conv failed\n", __func__);
+
+		if (vbat >= (di->pdata->chg_float_voltage - 150)) {
+			dev_info(di->dev,
+				"%s, in CV mode, disable AICL\n", __func__);
+			ret = abx500_mask_and_set_register_interruptible(
+				di->dev,
+				AB8500_CHARGER,
+				AB8500_USBCH_CTRL2_REG,
+				VBUS_AUTO_IN_CURR_LIM_ENA,
+				0);
+
+			if (ret) {
+				dev_err(di->dev, "failed to disable AICL\n");
+				return;
+			}
+			usleep_range(STEP_UDELAY, STEP_UDELAY * 20);
+			di->aicl_disabled = true;
+		}
+		}
+			ab8500_chg_en(di, true);
 }
 static struct ab8500_charger_event_list ab8500_event_list[] = {
 	{"MAIN_EXT_CH_NOT_OK", F_MAIN_EXT_CH_NOT_OK, M_MAIN_EXT_CH_NOT_OK},
@@ -1202,7 +1242,7 @@ static void ab8500_chg_reset_chg_counter_work(struct work_struct *work)
 	/* Reset Drop Counter */
 	ret = abx500_set_register_interruptible(di->dev,
 			AB8500_CHARGER,
-			0x56, 0x0);
+			0x56, 0x1);
 
 	ab8500_chg_en(di, true);
 
@@ -1523,12 +1563,28 @@ static irqreturn_t ab8500_chg_mainchthprotf_handler(int irq, void *data)
  */
 static irqreturn_t ab8500_chg_vbusdetf_handler(int irq, void *data)
 {
+	int ret;
 	struct ab8500_charger_info *di = data;
-
+	
 	dev_err(di->dev, "VBUS falling detected\n");
 
 	get_battery_data(di).abb_set_vbus_state(false);
 	di->usbnotok_count = 0;
+
+	/* Enable AICL in case it was disabled */
+	if (di->aicl_disabled) {
+		ret = abx500_mask_and_set_register_interruptible(
+			di->dev,
+			AB8500_CHARGER,
+			AB8500_USBCH_CTRL2_REG,
+			VBUS_AUTO_IN_CURR_LIM_ENA,
+			VBUS_AUTO_IN_CURR_LIM_ENA);
+
+		if (ret)
+			dev_err(di->dev, "failed to enable AICL\n");
+		else
+			di->aicl_disabled = false;
+	}
 
 	return IRQ_HANDLED;
 }
@@ -1642,15 +1698,32 @@ static irqreturn_t ab8500_chg_usbchargernotokr_handler(int irq, void *data)
 		 __func__, usblinkstatus, di->usbnotok_count);
 
 	if ((usblinkstatus & 0xF8) == 0x70) {
-		if (di->usbnotok_count < 3) {
+		if (di->usbnotok_count < 30) {
 			di->usbnotok_count++;
+			/* Re-Enable AICL in case it was disabled to avoid consecutive usbchargernotok ISR caused by vbusdrop*/
+			if (di->aicl_disabled) {
+				ret = abx500_mask_and_set_register_interruptible(
+				di->dev,
+				AB8500_CHARGER,
+				AB8500_USBCH_CTRL2_REG,
+				VBUS_AUTO_IN_CURR_LIM_ENA,
+				VBUS_AUTO_IN_CURR_LIM_ENA);
+
+				if (ret)
+					dev_err(di->dev, "failed to enable AICL\n");
+				else
+					di->aicl_disabled = false;
+				/*Ignore first usbchargernotokr_handler work in case AICL was disabled*/
+				di->usbnotok_count--;
+			}
 			queue_delayed_work(di->charger_wq,
-					   &di->reset_chg_counter_work, 0);
+			&di->reset_chg_counter_work, 0);
 		} else {
+
 			di->usbnotok_count = 0;
 			get_battery_data(di).abb_set_vbus_state(false);
 			queue_delayed_work(di->charger_wq,
-					   &di->check_hw_failure_work, 0);
+			&di->check_hw_failure_work, 0);
 		}
 	}
 
